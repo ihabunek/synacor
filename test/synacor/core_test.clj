@@ -46,6 +46,7 @@
 
     (memory-set 0 0)
     (memory-set 3 0)
+
     (is (= (memory-get 0) 0))
     (is (= (memory-get 16000) 0))
 

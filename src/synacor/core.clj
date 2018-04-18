@@ -86,6 +86,12 @@
     (regs-get (reg x))
     x))
 
+(defn dump [x]
+  (assert (is-valid x))
+  (if (is-reg x)
+    (str "{reg " (reg x) " value " (str (regs-get (reg x))) "}")
+    (str "{value " x "}")))
+
 ; -- instructions --------------------------------------------------------------
 
 (defn -halt
@@ -106,10 +112,7 @@
   "push: 2 a
    push <a> onto the stack"
   [pos a]
-  ; (print pos "push" (value a))
-  ; (print "" @stack)
   (stack-push (value a))
-  ; (println " >" @stack)
   (+ 2 pos))
 
 (defn -pop
@@ -157,7 +160,6 @@
 
 (defn generic-op [pos a b c op]
   (let [value (mod (op (value b) (value c)) 32768)]
-    ; (println pos "set reg" (reg a) "to" b (class op) c "=" value)
     (regs-set (reg a) value)
     (+ 4 pos)))
 
@@ -203,8 +205,6 @@
   "rmem: 15 a b
    read memory at address <b> and write it to <a>"
   [pos a b]
-  (assert (is-reg a))
-  (println pos "rmem" "into reg" (reg a) "from addr" (value b) "value" (memory-get (value b)))
   (regs-set (reg a)
     (memory-get (value b)))
   (+ 3 pos))
@@ -213,7 +213,6 @@
   "wmem: 16 a b
    write the value from <b> into memory at address <a>"
   [pos a b]
-  (println pos "wmem" "into addr" (value a) "value" (value b))
   (memory-set (value a) (value b))
   (+ 3 pos))
 
@@ -227,17 +226,26 @@
 (defn -ret
   "ret: 18
    remove the top element from the stack and jump to it; empty stack = halt"
-  [pos a]
+  [pos]
   (if (empty? @stack)
-    (-halt pos "ret: The stack is empty"))
-  (stack-pop))
+    (-halt pos "ret: The stack is empty")
+    (stack-pop)))
 
 (defn -out
   "out: 19 a
    write the character represented by ascii code <a> to the terminal"
-  [pos ascii]
-  (print (char ascii))
+  [pos a]
+  (print (char a))
   (+ 2 pos))
+
+(defn -in
+  "in: 20 a
+   read a character from the terminal and write its ascii code to <a>; it can be
+   assumed that once input starts, it will continue until a newline is
+   encountered; this means that you can safely read whole lines from the
+   keyboard and trust that they will be fully read"
+  [pos a]
+  (-halt pos "-in NOT IMPLEMENTED"))
 
 (defn -noop
   "noop: 21
@@ -249,29 +257,28 @@
   (println
     (case code
       0  [pos "halt"]
-      1  [pos "set" a b]
-      2  [pos "push" a]
-      3  [pos "pop" a]
-      4  [pos "eq" a b c]
-      5  [pos "gt" a b c]
-      6  [pos "jmp" a]
-      7  [pos "jt" a b]
-      8  [pos "jf" a b]
-      9  [pos "add" a b c]
-      10 [pos "mult" a b c]
-      11 [pos "mod" a b c]
-      12 [pos "and" a b c]
-      13 [pos "or" a b c]
-      14 [pos "not" a b]
-      15 [pos "rmem" a b]
-      16 [pos "wmem" a b]
-      17 [pos "call" a]
-      18 [pos "ret" a]
-      19 [pos "out" a]
+      1  [pos "set" (dump a) (dump b)]
+      2  [pos "push" (dump a)]
+      3  [pos "pop" (dump a)]
+      4  [pos "eq" (dump a) (dump b) (dump c)]
+      5  [pos "gt" (dump a) (dump b) (dump c)]
+      6  [pos "jmp" (dump a)]
+      7  [pos "jt" (dump a) (dump b)]
+      8  [pos "jf" (dump a) (dump b)]
+      9  [pos "add" (dump a) (dump b) (dump c)]
+      10 [pos "mult" (dump a) (dump b) (dump c)]
+      11 [pos "mod" (dump a) (dump b) (dump c)]
+      12 [pos "and" (dump a) (dump b) (dump c)]
+      13 [pos "or" (dump a) (dump b) (dump c)]
+      14 [pos "not" (dump a) (dump b)]
+      15 [pos "rmem" (dump a) (dump b)]
+      16 [pos "wmem" (dump a) (dump b)]
+      17 [pos "call" (dump a)]
+      18 [pos "ret"]
+      19 [pos "out" (dump a)]
       21 [pos "noop"])))
 
 (defn step [pos code a b c]
-  (print-step pos code a b c)
   (case code
     0  (-halt pos)
     1  (-set pos a b)
@@ -291,11 +298,11 @@
     15 (-rmem pos a b)
     16 (-wmem pos a b)
     17 (-call pos a)
-    18 (-ret pos a)
+    18 (-ret pos)
     19 (-out pos a)
+    20 (-in pos a)
     21 (-noop pos)
     (-halt pos (str "Unknown code: " code))))
-
 
 (defn run [program start-pos]
   (memory-load program)
