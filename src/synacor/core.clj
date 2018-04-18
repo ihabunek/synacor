@@ -235,7 +235,7 @@
   "out: 19 a
    write the character represented by ascii code <a> to the terminal"
   [pos a]
-  (print (char a))
+  (print (char (value a)))
   (+ 2 pos))
 
 (defn -in
