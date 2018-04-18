@@ -25,7 +25,7 @@
 
 ; -- registers -----------------------------------------------------------------
 
-(def regs (atom {}))
+(def regs (atom (vec (repeat 8 0))))
 
 (defn is-reg [x]
   (and (>= x 32768) (<= x 32775)))
