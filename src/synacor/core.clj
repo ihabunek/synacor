@@ -34,6 +34,9 @@
   (assert (is-reg x))
   (- x 32768))
 
+(defn regs-load [data]
+  (reset! regs (vec data)))
+
 (defn regs-set [reg val]
   (assert (and (>= reg 0) (<= reg 7)))
   (swap! regs assoc reg val))
@@ -65,6 +68,9 @@
 ; -- stack ---------------------------------------------------------------------
 
 (def stack (atom []))
+
+(defn stack-load [data]
+  (reset! stack (vec data)))
 
 (defn stack-push [x]
   (swap! stack conj x))
@@ -241,6 +247,16 @@
 
 (def read-buffer (atom ""))
 
+(defn get-command []
+  (do (print "=> ")
+      (flush)
+      (read-line)))
+
+(defn save-game [pos]
+  (let [data [pos @regs @stack @memory]]
+    (do (spit "save.dat" (join "\n" (map str data)))
+        (println "Game saved!"))))
+
 (defn -in
   "in: 20 a
    read a character from the terminal and write its ascii code to <a>; it can be
@@ -249,9 +265,10 @@
    keyboard and trust that they will be fully read"
   [pos a]
   (if (empty? @read-buffer)
-    (do (print "=> ")
-        (flush)
-        (swap! read-buffer concat (concat (read-line) "\n"))))
+    (let [cmd (get-command)]
+      (if (= cmd "save")
+        (save-game pos))
+      (swap! read-buffer concat (concat cmd "\n"))))
 
   (let [c (first @read-buffer)]
     (regs-set (reg a) (int c)))
@@ -316,8 +333,7 @@
     21 (-noop pos)
     (-halt pos (str "Unknown code: " code))))
 
-(defn run [program start-pos]
-  (memory-load program)
+(defn run-program [start-pos]
   (loop [pos start-pos]
     (if (not (nil? pos))
       (let [[code a b c] (memory-get-n pos 4)
@@ -325,6 +341,17 @@
         (recur pos)))))
 
 (defn -main [& args]
-  (let [bytes (slurp-bytes input)
-        program (parse-binary bytes)]
-    (println (run program 0))))
+  (if (empty? args)
+    ; Load program and start from zero
+    (let [bytes (slurp-bytes input)
+          program (parse-binary bytes)]
+      (memory-load program)
+      (run-program 0))
+
+    ; Load save and resume
+    (let [save-data (-> args first slurp (split #"\n"))
+          [pos regs stack memory] (map read-string save-data)]
+      (regs-load regs)
+      (stack-load stack)
+      (memory-load memory)
+      (run-program pos))))
