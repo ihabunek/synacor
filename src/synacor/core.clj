@@ -235,6 +235,7 @@
    write the character represented by ascii code <a> to the terminal"
   [pos a]
   (print (char (value a)))
+  (flush)
   (+ 2 pos))
 
 
