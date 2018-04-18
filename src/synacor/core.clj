@@ -46,9 +46,8 @@
 
 (def memory (atom (vec (repeat 32775 0))))
 
-(defn memory-load [program]
-  (doseq [[addr val] (partition 2 (interleave (range) program))]
-    (swap! memory assoc addr val)))
+(defn memory-load [data]
+  (reset! memory (vec data)))
 
 (defn memory-set [addr val]
   (assert (and (>= addr 0) (<= addr 32775)))
