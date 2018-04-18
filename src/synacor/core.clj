@@ -196,7 +196,7 @@
    stores 15-bit bitwise inverse of <b> in <a>"
   [pos a b]
   (regs-set (reg a)
-    (-> (bit-not b) (mod 32768)))
+    (-> (bit-not (value b)) (mod 32768)))
   (+ 3 pos))
 
 (defn -rmem
