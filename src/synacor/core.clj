@@ -238,6 +238,9 @@
   (print (char (value a)))
   (+ 2 pos))
 
+
+(def read-buffer (atom ""))
+
 (defn -in
   "in: 20 a
    read a character from the terminal and write its ascii code to <a>; it can be
@@ -245,7 +248,16 @@
    encountered; this means that you can safely read whole lines from the
    keyboard and trust that they will be fully read"
   [pos a]
-  (-halt pos "-in NOT IMPLEMENTED"))
+  (if (empty? @read-buffer)
+    (do (print "=> ")
+        (flush)
+        (swap! read-buffer concat (concat (read-line) "\n"))))
+
+  (let [c (first @read-buffer)]
+    (regs-set (reg a) (int c)))
+
+  (swap! read-buffer rest)
+  (+ pos 2))
 
 (defn -noop
   "noop: 21
