@@ -91,12 +91,6 @@
     (regs-get (reg x))
     x))
 
-(defn dump [x]
-  (assert (is-valid x))
-  (if (is-reg x)
-    (str "{reg " (reg x) " value " (str (regs-get (reg x))) "}")
-    (str "{value " x "}")))
-
 ; -- instructions --------------------------------------------------------------
 
 (defn -halt
@@ -282,31 +276,6 @@
   [pos]
   (inc pos))
 
-(defn print-step [pos code a b c]
-  (println
-    (case code
-      0  [pos "halt"]
-      1  [pos "set" (dump a) (dump b)]
-      2  [pos "push" (dump a)]
-      3  [pos "pop" (dump a)]
-      4  [pos "eq" (dump a) (dump b) (dump c)]
-      5  [pos "gt" (dump a) (dump b) (dump c)]
-      6  [pos "jmp" (dump a)]
-      7  [pos "jt" (dump a) (dump b)]
-      8  [pos "jf" (dump a) (dump b)]
-      9  [pos "add" (dump a) (dump b) (dump c)]
-      10 [pos "mult" (dump a) (dump b) (dump c)]
-      11 [pos "mod" (dump a) (dump b) (dump c)]
-      12 [pos "and" (dump a) (dump b) (dump c)]
-      13 [pos "or" (dump a) (dump b) (dump c)]
-      14 [pos "not" (dump a) (dump b)]
-      15 [pos "rmem" (dump a) (dump b)]
-      16 [pos "wmem" (dump a) (dump b)]
-      17 [pos "call" (dump a)]
-      18 [pos "ret"]
-      19 [pos "out" (dump a)]
-      21 [pos "noop"])))
-
 (defn step [pos code a b c]
   (case code
     0  (-halt pos)
@@ -331,7 +300,33 @@
     19 (-out pos a)
     20 (-in pos a)
     21 (-noop pos)
-    (-halt pos (str "Unknown code: " code))))
+    (throw (Exception. (str "Unknown code: " code)))))
+
+(defn get-step [^long code a b c]
+  (case code
+    0  [:halt]
+    1  [:set a b]
+    2  [:push a]
+    3  [:pop a]
+    4  [:eq a b c]
+    5  [:gt a b c]
+    6  [:jmp a]
+    7  [:jt a b]
+    8  [:jf a b]
+    9  [:add a b c]
+    10 [:mult a b c]
+    11 [:mod a b c]
+    12 [:and a b c]
+    13 [:or a b c]
+    14 [:not a b]
+    15 [:rmem a b]
+    16 [:wmem a b]
+    17 [:call a]
+    18 [:ret]
+    19 [:out a]
+    20 [:in a]
+    21 [:noop]
+    nil))
 
 (defn run-program [start-pos]
   (loop [pos start-pos]
@@ -340,18 +335,92 @@
             pos (step pos code a b c)]
         (recur pos)))))
 
-(defn -main [& args]
-  (if (empty? args)
-    ; Load program and start from zero
-    (let [bytes (slurp-bytes input)
-          program (parse-binary bytes)]
-      (memory-load program)
-      (run-program 0))
+(defn pad-coll [n val coll]
+  (if (< (count coll) n)
+    (let [len (- n (count coll))]
+      (concat coll (repeat len val)))
+    coll))
 
-    ; Load save and resume
-    (let [save-data (-> args first slurp (split #"\n"))
-          [pos regs stack memory] (map read-string save-data)]
-      (regs-load regs)
-      (stack-load stack)
-      (memory-load memory)
-      (run-program pos))))
+(defn get-step-at [program pos]
+  (let [end (min (+ pos 4) (dec (count program)))]
+    (->> (subvec program pos end)
+         (pad-coll 4 nil)
+         (apply get-step))))
+
+(defn dump-memory [program pos]
+  (println "Local memory:")
+  (doseq [index (range (- pos 10) (+ pos 10))]
+    (println index (get program index))))
+
+(defn dump-arg [arg]
+  (cond
+    (is-reg arg) (str "R" (reg arg))
+    :else arg))
+
+(defn dump-op [pos op args raw]
+  (if (nil? op)
+    (println (format "0x%04x" pos) "???" raw)
+    (println
+      (format "0x%04x" pos)
+      op
+      (join " " (map dump-arg args)))))
+
+(defn dump-out
+  "Dumps an :out instruction."
+  [program pos]
+  (let [raw (get program pos)
+        [op & args] (get-step-at program pos)
+        offset (inc (count args))]
+    (if (= op :out)
+      (dump-out pos args)
+      (dump-op pos op args raw))
+    (inc (count args))))
+
+
+(defn dump-instruction
+  "Dumps instruction at given position and returns the offset to next position."
+  [program pos]
+  (let [raw (get program pos)
+        [op & args] (get-step-at program pos)
+        offset (inc (count args))]
+    (dump-op pos op args raw)
+    (inc (count args))))
+
+(defn dump-program [program]
+  (let [max-pos (- (count program) 2)]
+    (loop [pos 0]
+      (if (> pos max-pos)
+        (println "END")
+        (let [offset (dump-instruction program pos)]
+          (recur (+ pos offset)))))))
+
+(defn run-default
+  "Loads the program from challange.bin and runs it from pos 0."
+  []
+  (let [bytes (slurp-bytes input)
+        program (vec (parse-binary bytes))]
+    (memory-load program)
+    (run-program 0)))
+
+(defn run-dump []
+  "Loads the program from challange.bin and dumps it in human readable format."
+  (let [bytes (slurp-bytes input)
+        program (vec (parse-binary bytes))]
+    (dump-program program)))
+
+(defn run-resume
+  "Loads the program and other state from given save file and resumes it."
+  [save]
+  (let [save-data (-> save slurp (split #"\n"))
+        [pos regs stack memory] (map read-string save-data)]
+    (regs-load regs)
+    (stack-load stack)
+    (memory-load memory)
+    (run-program pos)))
+
+(defn -main [& args]
+  (cond
+    (empty? args) (run-default)
+    (= (first args) "dump") (run-dump)
+    (= (first args) "resume") (run-resume (second args))
+    :else (println "Invalid params.")))

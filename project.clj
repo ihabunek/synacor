@@ -4,4 +4,5 @@
   :license {:name "MIT License"
             :url "https://opensource.org/licenses/MIT"}
   :dependencies [[org.clojure/clojure "1.9.0"]]
-  :main synacor.core)
+  :main synacor.core
+  :global-vars {*warn-on-reflection* true})
