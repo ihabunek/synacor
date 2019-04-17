@@ -276,76 +276,47 @@
   [pos]
   (inc pos))
 
-(defn step [pos code a b c]
-  (case code
-    0  (-halt pos)
-    1  (-set pos a b)
-    2  (-push pos a)
-    3  (-pop pos a)
-    4  (-eq pos a b c)
-    5  (-gt pos a b c)
-    6  (-jmp pos a)
-    7  (-jt pos a b)
-    8  (-jf pos a b)
-    9  (-add pos a b c)
-    10 (-mult pos a b c)
-    11 (-mod pos a b c)
-    12 (-and pos a b c)
-    13 (-or pos a b c)
-    14 (-not pos a b)
-    15 (-rmem pos a b)
-    16 (-wmem pos a b)
-    17 (-call pos a)
-    18 (-ret pos)
-    19 (-out pos a)
-    20 (-in pos a)
-    21 (-noop pos)
-    (throw (Exception. (str "Unknown code: " code)))))
+(def commands
+  { 0x00 [:halt -halt 0]
+    0x01 [:set  -set  2]
+    0x02 [:push -push 1]
+    0x03 [:pop  -pop  1]
+    0x04 [:eq   -eq   3]
+    0x05 [:gt   -gt   3]
+    0x06 [:jmp  -jmp  1]
+    0x07 [:jt   -jt   2]
+    0x08 [:jf   -jf   2]
+    0x09 [:add  -add  3]
+    0x0A [:mult -mult 3]
+    0x0B [:mod  -mod  3]
+    0x0C [:and  -and  3]
+    0x0D [:or   -or   3]
+    0x0E [:not  -not  2]
+    0x0F [:rmem -rmem 2]
+    0x10 [:wmem -wmem 2]
+    0x11 [:call -call 1]
+    0x12 [:ret  -ret  0]
+    0x13 [:out  -out  1]
+    0x14 [:in   -in   1]
+    0x15 [:noop -noop 0]})
 
-(defn get-step [^long code a b c]
-  (case code
-    0  [:halt]
-    1  [:set a b]
-    2  [:push a]
-    3  [:pop a]
-    4  [:eq a b c]
-    5  [:gt a b c]
-    6  [:jmp a]
-    7  [:jt a b]
-    8  [:jf a b]
-    9  [:add a b c]
-    10 [:mult a b c]
-    11 [:mod a b c]
-    12 [:and a b c]
-    13 [:or a b c]
-    14 [:not a b]
-    15 [:rmem a b]
-    16 [:wmem a b]
-    17 [:call a]
-    18 [:ret]
-    19 [:out a]
-    20 [:in a]
-    21 [:noop]
-    nil))
+(defn get-args [program pos argc]
+  (subvec program
+    (inc pos)
+    (+ (inc pos) argc)))
+
+(defn get-step-at [program pos]
+  (let [code (nth program pos)
+        [cmd-name cmd-fn argc] (get commands code)]
+    (if cmd-name
+      [cmd-name cmd-fn argc (get-args program pos argc)])))
 
 (defn run-program [start-pos]
   (loop [pos start-pos]
     (if (not (nil? pos))
-      (let [[code a b c] (memory-get-n pos 4)
-            pos (step pos code a b c)]
-        (recur pos)))))
-
-(defn pad-coll [n val coll]
-  (if (< (count coll) n)
-    (let [len (- n (count coll))]
-      (concat coll (repeat len val)))
-    coll))
-
-(defn get-step-at [program pos]
-  (let [end (min (+ pos 4) (dec (count program)))]
-    (->> (subvec program pos end)
-         (pad-coll 4 nil)
-         (apply get-step))))
+      (let [[cmd-name cmd-fn argc argv] (get-step-at @memory pos)
+            next-pos (apply cmd-fn (concat [pos] argv))]
+        (recur next-pos)))))
 
 (defn dump-memory [program pos]
   (println "Local memory:")
@@ -357,42 +328,45 @@
     (is-reg arg) (str "R" (reg arg))
     :else arg))
 
-(defn dump-op [pos op args raw]
-  (if (nil? op)
-    (println (format "0x%04x" pos) "???" raw)
-    (println
-      (format "0x%04x" pos)
-      op
-      (join " " (map dump-arg args)))))
+(defn dump-op [pos op args]
+  (println
+    (format "0x%04x" pos)
+    op
+    (->> args (map dump-arg) (join " ")))
+  (+ (inc pos) (count args)))
 
-(defn dump-out
-  "Dumps an :out instruction."
-  [program pos]
-  (let [raw (get program pos)
-        [op & args] (get-step-at program pos)
-        offset (inc (count args))]
-    (if (= op :out)
-      (dump-out pos args)
-      (dump-op pos op args raw))
-    (inc (count args))))
+(defn dump-out [program pos]
+  (print (format "0x%04x" pos) ":out ")
+  (loop [pos pos]
+    (if (not= (get program pos) 0x13)
+      (do
+        (println)
+        pos)
+      (do
+        (print (char (get program (inc pos))))
+        (recur (+ 2 pos))))))
 
+(defn dump-raw [pos val]
+  (println
+    (format "0x%04x" pos)
+    (format "0x%04x" val))
+  (inc pos))
 
 (defn dump-instruction
   "Dumps instruction at given position and returns the offset to next position."
   [program pos]
-  (let [raw (get program pos)
-        [op & args] (get-step-at program pos)
-        offset (inc (count args))]
-    (dump-op pos op args raw)
-    (inc (count args))))
+  (if-let [[op _ argc args] (get-step-at program pos)]
+    (if (= op :out)
+      (dump-out program pos)
+      (dump-op pos op args))
+    (dump-raw pos (get program pos))))
 
 (defn dump-program [program]
-  (let [max-pos (- (count program) 2)]
-    (loop [pos 0]
-      (if (> pos max-pos)
-        (println "END")
-        (let [offset (dump-instruction program pos)]
-          (recur (+ pos offset)))))))
+  (loop [pos 0]
+    (if (>= pos (count program))
+      (println "END")
+      (let [next-pos (dump-instruction program pos)]
+        (recur next-pos)))))
 
 (defn run-default
   "Loads the program from challange.bin and runs it from pos 0."
